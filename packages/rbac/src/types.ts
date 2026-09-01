@@ -13,7 +13,14 @@ export const CLASS_LEVEL: Record<Classification, number> = {
   CRITICAL: 4,
 };
 
-export type ScopeType = "ALL" | "BRANCH" | "SELF" | "RESOURCE";
+// Matches the Prisma `ScopeType` enum exactly — do not diverge from schema.prisma.
+export type ScopeType =
+  | "TENANT"
+  | "BRANCH"
+  | "SELF"
+  | "ASSIGNED"
+  | "RESOURCE"
+  | "CORPORATE_ACCOUNT";
 
 export interface EffectivePermission {
   code: string; // e.g. "rentals.create", "finance.refund"
@@ -25,6 +32,7 @@ export interface ScopeGrantContext {
   branchId?: string | null;
   resourceType?: string | null;
   resourceId?: string | null;
+  corporateAccountId?: string | null;
 }
 
 // Everything needed to evaluate an authorize() call, assembled once per
@@ -45,6 +53,7 @@ export interface ResourceContext {
   classification?: Classification;
   ownerId?: string | null; // e.g. handledById, createdById
   assignedUserId?: string | null; // e.g. driver/technician self-scoping
+  corporateAccountId?: string | null;
   [key: string]: unknown;
 }
 

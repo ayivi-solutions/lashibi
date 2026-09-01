@@ -28,21 +28,31 @@ export function hasRule(ctx: PrincipalContext, permission: string): boolean {
 
 function resourceInScope(ctx: PrincipalContext, resource: ResourceContext): boolean {
   if (!resource || Object.keys(resource).length === 0) return true;
-  if (ctx.scopeGrants.some((g) => g.scopeType === "ALL")) return true;
+  if (ctx.scopeGrants.some((g) => g.scopeType === "TENANT")) return true;
 
   for (const grant of ctx.scopeGrants) {
     if (grant.scopeType === "BRANCH") {
       if (!resource.branchId || resource.branchId === grant.branchId) return true;
     }
     if (grant.scopeType === "SELF") {
-      if (resource.assignedUserId && resource.assignedUserId === ctx.userId) return true;
       if (resource.ownerId && resource.ownerId === ctx.userId) return true;
+    }
+    if (grant.scopeType === "ASSIGNED") {
+      if (resource.assignedUserId && resource.assignedUserId === ctx.userId) return true;
     }
     if (grant.scopeType === "RESOURCE") {
       if (
         resource.id &&
         grant.resourceId === resource.id &&
         (!grant.resourceType || grant.resourceType === resource["resourceType"])
+      ) {
+        return true;
+      }
+    }
+    if (grant.scopeType === "CORPORATE_ACCOUNT") {
+      if (
+        resource.corporateAccountId &&
+        resource.corporateAccountId === grant.corporateAccountId
       ) {
         return true;
       }
