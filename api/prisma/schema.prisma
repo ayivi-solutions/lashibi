@@ -1,0 +1,3090 @@
+// Lashibi OS — Enterprise Prisma Schema
+// PostgreSQL via Supabase, application schema: lashibi
+//
+// Security doctrine:
+// 1. Supabase Auth owns authentication credentials. No password hashes are stored here.
+// 2. Authorization is RBAC + ABAC: role, permission, scope, assignment/ownership,
+//    classification, session assurance, delegation, SoD and approval policy.
+// 3. tenantId is carried throughout protected data for RLS and composite-FK isolation.
+// 4. Audit/auth-decision/evidence ledgers are append-only by database policy.
+// 5. High-volume telemetry is designed for PostgreSQL time partitioning in SQL migrations.
+// 6. Prisma cannot express every CHECK/RLS/trigger/partition rule; see companion migration notes.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["lashibi"]
+}
+
+// =============================================================================
+// ENUMS — CORE, IDENTITY, SECURITY
+// =============================================================================
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+
+  @@schema("lashibi")
+}
+
+enum BranchType {
+  HEAD_OFFICE
+  RENTAL_HUB
+  AIRPORT_DESK
+  WORKSHOP
+  SALES_YARD
+  STOCK_LOCATION
+  OTHER
+
+  @@schema("lashibi")
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  DISABLED
+  ARCHIVED
+
+  @@schema("lashibi")
+}
+
+enum Classification {
+  PUBLIC
+  INTERNAL
+  CONFIDENTIAL
+  RESTRICTED
+  CRITICAL
+
+  @@schema("lashibi")
+}
+
+enum ScopeType {
+  TENANT
+  BRANCH
+  SELF
+  ASSIGNED
+  RESOURCE
+  CORPORATE_ACCOUNT
+
+  @@schema("lashibi")
+}
+
+enum PermissionEffect {
+  ALLOW
+  DENY
+
+  @@schema("lashibi")
+}
+
+enum PrincipalType {
+  USER
+  SERVICE
+  API_CLIENT
+  DEVICE
+  SYSTEM
+  AI_AGENT
+
+  @@schema("lashibi")
+}
+
+enum AuthDecisionResult {
+  ALLOW
+  DENY
+  STEP_UP_REQUIRED
+  APPROVAL_REQUIRED
+  ERROR
+
+  @@schema("lashibi")
+}
+
+enum AuthEventType {
+  SESSION_ESTABLISHED
+  SESSION_REFRESHED
+  SESSION_REVOKED
+  LOGIN_SUCCESS
+  LOGIN_FAILURE
+  MFA_CHALLENGE
+  MFA_SUCCESS
+  MFA_FAILURE
+  FACTOR_ENROLLED
+  FACTOR_RESET
+  STEP_UP_REQUIRED
+  STEP_UP_SUCCESS
+  STEP_UP_FAILURE
+  DEVICE_TRUST_CHANGED
+  RISK_CHANGED
+
+  @@schema("lashibi")
+}
+
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+  COMPROMISED
+
+  @@schema("lashibi")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+
+  @@schema("lashibi")
+}
+
+enum ApprovalDecisionType {
+  APPROVE
+  REJECT
+
+  @@schema("lashibi")
+}
+
+enum TemporaryGrantStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  REVOKED
+  REJECTED
+
+  @@schema("lashibi")
+}
+
+enum BreakGlassStatus {
+  REQUESTED
+  ACTIVE
+  CLOSED
+  EXPIRED
+  REJECTED
+
+  @@schema("lashibi")
+}
+
+enum DeviceTrustStatus {
+  UNKNOWN
+  TRUSTED
+  LIMITED
+  BLOCKED
+
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// ENUMS — PEOPLE, CUSTOMER, VEHICLE
+// =============================================================================
+
+enum EmploymentStatus {
+  ACTIVE
+  LEAVE
+  SUSPENDED
+  TERMINATED
+  ARCHIVED
+
+  @@schema("lashibi")
+}
+
+enum DriverAvailabilityStatus {
+  AVAILABLE
+  ASSIGNED
+  ON_TRIP
+  OFF_DUTY
+  LEAVE
+  SUSPENDED
+
+  @@schema("lashibi")
+}
+
+enum TechnicianAvailabilityStatus {
+  AVAILABLE
+  ASSIGNED
+  OFF_DUTY
+  LEAVE
+  SUSPENDED
+
+  @@schema("lashibi")
+}
+
+enum CustomerType {
+  INDIVIDUAL
+  CORPORATE
+
+  @@schema("lashibi")
+}
+
+enum CustomerStatus {
+  PROSPECT
+  ACTIVE
+  RESTRICTED
+  DORMANT
+  ARCHIVED
+
+  @@schema("lashibi")
+}
+
+enum IdentityType {
+  GHANA_CARD
+  PASSPORT
+  DRIVERS_LICENCE
+  TIN
+  COMPANY_REGISTRATION
+  OTHER
+
+  @@schema("lashibi")
+}
+
+enum ConsentType {
+  TERMS
+  PRIVACY
+  MARKETING
+  LOCATION_TRACKING
+  VEHICLE_PASSPORT_SHARE
+  CREDIT_CHECK
+  INSURANCE_PROCESSING
+
+  @@schema("lashibi")
+}
+
+enum VehicleStatus {
+  ONBOARDING
+  AVAILABLE
+  RESERVED
+  DISPATCH_PENDING
+  ON_RENTAL
+  WORKSHOP
+  MAINTENANCE
+  ACCIDENT_HOLD
+  INSURANCE_HOLD
+  SALES_STOCK
+  SOLD
+  RETIRED
+  ARCHIVED
+
+  @@schema("lashibi")
+}
+
+enum VehicleOwnershipType {
+  OWNED
+  LEASED
+  CONSIGNMENT
+  CUSTOMER
+  THIRD_PARTY
+
+  @@schema("lashibi")
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  HYBRID
+  PLUG_IN_HYBRID
+  ELECTRIC
+  LPG
+  OTHER
+
+  @@schema("lashibi")
+}
+
+enum TransmissionType {
+  AUTOMATIC
+  MANUAL
+  CVT
+  DCT
+  OTHER
+
+  @@schema("lashibi")
+}
+
+enum OdometerSource {
+  MANUAL
+  INSPECTION
+  TELEMETRY
+  WORKSHOP
+  RENTAL_PICKUP
+  RENTAL_RETURN
+  SALES_INSPECTION
+  IMPORT
+  CORRECTION
+
+  @@schema("lashibi")
+}
+
+enum VehicleDocumentType {
+  REGISTRATION
+  ROADWORTHINESS
+  INSURANCE
+  IMPORT
+  CUSTOMS
+  PURCHASE
+  OWNERSHIP
+  WARRANTY
+  OTHER
+
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// ENUMS — RENTAL, TRACKING, INSPECTION
+// =============================================================================
+
+enum RentalType {
+  SELF_DRIVE
+  CHAUFFEUR
+  CORPORATE
+  TOUR_PACKAGE
+  LONG_TERM
+
+  @@schema("lashibi")
+}
+
+enum ReservationStatus {
+  DRAFT
+  QUOTED
+  RESERVED
+  AWAITING_PAYMENT
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+  CONVERTED
+
+  @@schema("lashibi")
+}
+
+enum VehicleAllocationStatus {
+  HELD
+  CONFIRMED
+  RELEASED
+  REPLACED
+  CANCELLED
+
+  @@schema("lashibi")
+}
+
+enum RentalAgreementStatus {
+  DRAFT
+  AWAITING_SIGNATURE
+  AWAITING_PAYMENT
+  AWAITING_DISPATCH
+  DISPATCHED
+  ON_HIRE
+  EXTENSION_REQUESTED
+  OVERDUE
+  RETURN_INSPECTION
+  RECONCILIATION
+  COMPLETED
+  CANCELLED
+
+  @@schema("lashibi")
+}
+
+enum DriverAssignmentStatus {
+  ASSIGNED
+  ACCEPTED
+  ACTIVE
+  COMPLETED
+  REPLACED
+  CANCELLED
+
+  @@schema("lashibi")
+}
+
+enum RentalExtensionStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@schema("lashibi")
+}
+
+enum RentalChargeType {
+  BASE_RENTAL
+  DRIVER
+  DELIVERY
+  PICKUP
+  INSURANCE
+  FUEL
+  EXCESS_MILEAGE
+  DAMAGE
+  FINE
+  TOLL
+  CLEANING
+  LATE_RETURN
+  EXTENSION
+  DISCOUNT
+  TAX
+  OTHER
+
+  @@schema("lashibi")
+}
+
+enum DepositStatus {
+  REQUIRED
+  PENDING
+  HELD
+  PARTIALLY_RELEASED
+  RELEASED
+  FORFEITED
+  REFUNDED
+
+  @@schema("lashibi")
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@schema("lashibi")
+}
+
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  INSURANCE
+  RESOLVED
+  CLOSED
+
+  @@schema("lashibi")
+}
+
+enum InspectionContext {
+  RENTAL_PICKUP
+  RENTAL_RETURN
+  WORKSHOP_INTAKE
+  WORKSHOP_QC
+  FLEET_ROUTINE
+  SALES_ACQUISITION
+  SALES_HANDOVER
+  INSURANCE_ASSESSMENT
+
+  @@schema("lashibi")
+}
+
+enum InspectionStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  VERIFIED
+  VOIDED
+
+  @@schema("lashibi")
+}
+
+enum FindingStatus {
+  PASS
+  FAIL
+  OBSERVATION
+  NOT_APPLICABLE
+
+  @@schema("lashibi")
+}
+
+enum DamageStatus {
+  OBSERVED
+  PRE_EXISTING
+  NEW
+  DISPUTED
+  ASSESSED
+  REPAIRED
+  WAIVED
+  CLOSED
+
+  @@schema("lashibi")
+}
+
+enum TrackingDeviceStatus {
+  PROVISIONED
+  ACTIVE
+  OFFLINE
+  SUSPENDED
+  RETIRED
+
+  @@schema("lashibi")
+}
+
+enum TelemetryAlertType {
+  DEVICE_OFFLINE
+  GEOFENCE_ENTER
+  GEOFENCE_EXIT
+  SPEEDING
+  HARSH_BRAKING
+  HARSH_ACCELERATION
+  IGNITION_ANOMALY
+  LOW_BATTERY
+  ODOMETER_MISMATCH
+  SOS
+  TAMPER
+
+  @@schema("lashibi")
+}
+
+enum TelemetryAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  FALSE_POSITIVE
+
+  @@schema("lashibi")
+}
+
+enum TripStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// ENUMS — WORKSHOP, INVENTORY, SALES, INSURANCE, FINANCE
+// =============================================================================
+
+enum WorkshopJobStatus {
+  BOOKED
+  INTAKE
+  DIAGNOSIS
+  AWAITING_ESTIMATE_APPROVAL
+  AWAITING_PARTS
+  REPAIR
+  QC
+  READY_FOR_DELIVERY
+  COMPLETED
+  CANCELLED
+
+  @@schema("lashibi")
+}
+
+enum WorkshopItemType {
+  LABOUR
+  PART
+  MATERIAL
+  FEE
+  DISCOUNT
+  TAX
+
+  @@schema("lashibi")
+}
+
+enum EstimateStatus {
+  DRAFT
+  SENT
+  VIEWED
+  APPROVED
+  REJECTED
+  EXPIRED
+  SUPERSEDED
+
+  @@schema("lashibi")
+}
+
+enum StockMovementType {
+  RECEIPT
+  ISSUE
+  TRANSFER_IN
+  TRANSFER_OUT
+  RETURN_IN
+  RETURN_OUT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  WRITE_OFF
+  RESERVATION
+  RELEASE
+
+  @@schema("lashibi")
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+
+  @@schema("lashibi")
+}
+
+enum GoodsReceiptStatus {
+  DRAFT
+  POSTED
+  VOIDED
+
+  @@schema("lashibi")
+}
+
+enum SalesLeadStatus {
+  NEW
+  QUALIFIED
+  TEST_DRIVE
+  NEGOTIATION
+  RESERVED
+  WON
+  LOST
+  DORMANT
+
+  @@schema("lashibi")
+}
+
+enum VehicleSaleStatus {
+  DRAFT
+  RESERVED
+  AWAITING_PAYMENT
+  PAID
+  HANDOVER_PENDING
+  COMPLETED
+  CANCELLED
+
+  @@schema("lashibi")
+}
+
+enum InsurancePolicyStatus {
+  ACTIVE
+  EXPIRING
+  EXPIRED
+  CANCELLED
+
+  @@schema("lashibi")
+}
+
+enum InsuranceClaimStatus {
+  FNOL
+  DOCUMENTS_PENDING
+  ASSESSMENT
+  APPROVED
+  REPAIR
+  SETTLEMENT_PENDING
+  SETTLED
+  REJECTED
+  CLOSED
+
+  @@schema("lashibi")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  VOIDED
+  OVERDUE
+
+  @@schema("lashibi")
+}
+
+enum InvoiceSourceType {
+  RENTAL
+  WORKSHOP
+  VEHICLE_SALE
+  PARTS
+  INSURANCE
+  OTHER
+
+  @@schema("lashibi")
+}
+
+enum PaymentMethod {
+  MOBILE_MONEY
+  CARD
+  BANK_TRANSFER
+  CASH
+  CHEQUE
+  WALLET
+  OTHER
+
+  @@schema("lashibi")
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  SUCCEEDED
+  FAILED
+  REVERSED
+  REFUNDED
+
+  @@schema("lashibi")
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVAL_REQUIRED
+  APPROVED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+
+  @@schema("lashibi")
+}
+
+enum TaxSubmissionStatus {
+  NOT_REQUIRED
+  QUEUED
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+  RETRY
+
+  @@schema("lashibi")
+}
+
+enum CommunicationChannel {
+  WHATSAPP
+  SMS
+  EMAIL
+  PUSH
+  PHONE
+  IN_APP
+
+  @@schema("lashibi")
+}
+
+enum CommunicationDirection {
+  INBOUND
+  OUTBOUND
+
+  @@schema("lashibi")
+}
+
+enum AiRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  REJECTED_BY_POLICY
+
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// COUNTRY PACK / TENANT / ORGANISATION
+// =============================================================================
+
+model CountryPack {
+  code             String   @id @db.VarChar(2)
+  name             String
+  currencyCode     String   @db.VarChar(3)
+  defaultTimezone  String
+  locale           String
+  config           Json
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  tenants          Tenant[]
+  taxRules         TaxRule[]
+
+  @@schema("lashibi")
+}
+
+model TaxRule {
+  id              String   @id @default(cuid())
+  countryPackCode String   @db.VarChar(2)
+  countryPack     CountryPack @relation(fields: [countryPackCode], references: [code], onDelete: Restrict)
+  code            String
+  name            String
+  rate            Decimal  @db.Decimal(9, 6)
+  compoundOrder   Int      @default(0)
+  effectiveFrom   DateTime @db.Timestamptz(3)
+  effectiveTo     DateTime? @db.Timestamptz(3)
+  active          Boolean  @default(true)
+
+  @@unique([countryPackCode, code, effectiveFrom])
+  @@schema("lashibi")
+}
+
+model Tenant {
+  id              String       @id @default(cuid())
+  name            String
+  slug            String       @unique
+  status          TenantStatus @default(ACTIVE)
+  countryPackCode String       @default("GH") @db.VarChar(2)
+  countryPack     CountryPack  @relation(fields: [countryPackCode], references: [code], onDelete: Restrict)
+  timezone        String       @default("Africa/Accra")
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @db.Timestamptz(3)
+  archivedAt      DateTime?    @db.Timestamptz(3)
+
+  branches        Branch[]
+  users           User[]
+  roles           RoleDefinition[]
+  customers       Customer[]
+  vehicles        Vehicle[]
+  suppliers       Supplier[]
+  parts           Part[]
+  apiClients      ApiClient[]
+  integrations    IntegrationConnection[]
+
+  @@schema("lashibi")
+}
+
+model Branch {
+  id          String     @id @default(cuid())
+  tenantId    String
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  code        String
+  name        String
+  type        BranchType
+  timezone    String     @default("Africa/Accra")
+  active      Boolean    @default(true)
+  address     Json?
+  createdAt   DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @db.Timestamptz(3)
+
+  vehicles             Vehicle[]
+  stockLocations        StockLocation[]
+  workBays              WorkBay[]
+  userMemberships       UserBranchMembership[]
+  rentalReservations    RentalReservation[]
+  rentalAgreements      RentalAgreement[]
+  workshopJobs          WorkshopJob[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code])
+  @@index([tenantId, active])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// IDENTITY, RBAC / ABAC, SCOPE, SoD, APPROVAL, PAM
+// =============================================================================
+
+model User {
+  id            String      @id @default(cuid())
+  tenantId      String
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  authUserId    String      @db.Uuid
+  email         String
+  name          String
+  status        UserStatus  @default(INVITED)
+  clearance     Classification @default(INTERNAL)
+  primaryBranchId String?
+  active        Boolean     @default(true)
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @db.Timestamptz(3)
+  archivedAt    DateTime?   @db.Timestamptz(3)
+
+  roles                    UserRole[]
+  branchMemberships        UserBranchMembership[]
+  employeeProfile          EmployeeProfile?
+  sessions                 SecuritySession[]
+  devices                  DeviceRegistration[]
+  approvalRequestsMade     ApprovalRequest[]
+  approvalDecisionsMade    ApprovalDecision[]
+  temporaryAccessGrants    TemporaryAccessGrant[]
+  breakGlassSessions       BreakGlassSession[]
+  rentalReservationsCreated RentalReservation[]
+  rentalAgreementsHandled  RentalAgreement[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, authUserId])
+  @@unique([tenantId, email])
+  @@index([tenantId, status])
+  @@schema("lashibi")
+}
+
+model UserBranchMembership {
+  id          String   @id @default(cuid())
+  tenantId    String
+  userId      String
+  user        User     @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
+  branchId    String
+  branch      Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  isPrimary   Boolean  @default(false)
+  startsAt    DateTime @default(now()) @db.Timestamptz(3)
+  endsAt      DateTime? @db.Timestamptz(3)
+
+  @@unique([tenantId, userId, branchId])
+  @@index([tenantId, branchId])
+  @@schema("lashibi")
+}
+
+model RoleDefinition {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  code        String
+  name        String
+  description String?
+  builtIn     Boolean  @default(false)
+  privileged  Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  permissions RolePermission[]
+  assignments UserRole[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code])
+  @@schema("lashibi")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  domain      String
+  action      String
+  description String?
+  sensitive   Boolean  @default(false)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  rolePermissions RolePermission[]
+  temporaryGrants TemporaryAccessGrant[]
+  sodAsA           SoDPolicy[] @relation("SoDPermissionA")
+  sodAsB           SoDPolicy[] @relation("SoDPermissionB")
+
+  @@index([domain, action])
+  @@schema("lashibi")
+}
+
+model RolePermission {
+  id           String           @id @default(cuid())
+  tenantId     String
+  roleId       String
+  role         RoleDefinition   @relation(fields: [tenantId, roleId], references: [tenantId, id], onDelete: Cascade)
+  permissionId String
+  permission   Permission       @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+  effect       PermissionEffect @default(ALLOW)
+  condition    Json?
+  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, roleId, permissionId])
+  @@index([permissionId])
+  @@schema("lashibi")
+}
+
+model UserRole {
+  id          String   @id @default(cuid())
+  tenantId    String
+  userId      String
+  user        User     @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
+  roleId      String
+  role        RoleDefinition @relation(fields: [tenantId, roleId], references: [tenantId, id], onDelete: Restrict)
+  startsAt    DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt   DateTime? @db.Timestamptz(3)
+  grantedById String?
+  reason      String?
+  active      Boolean  @default(true)
+
+  scopes      ScopeGrant[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, userId, active])
+  @@index([tenantId, roleId])
+  @@schema("lashibi")
+}
+
+model ScopeGrant {
+  id            String    @id @default(cuid())
+  tenantId      String
+  userRoleId    String
+  userRole      UserRole  @relation(fields: [tenantId, userRoleId], references: [tenantId, id], onDelete: Cascade)
+  scopeType     ScopeType
+  branchId      String?
+  resourceType  String?
+  resourceId    String?
+  corporateAccountId String?
+  condition     Json?
+  startsAt      DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt     DateTime? @db.Timestamptz(3)
+  active        Boolean   @default(true)
+
+  @@index([tenantId, userRoleId, active])
+  @@index([tenantId, branchId])
+  @@index([tenantId, resourceType, resourceId])
+  @@schema("lashibi")
+}
+
+model SoDPolicy {
+  id              String   @id @default(cuid())
+  tenantId        String
+  code            String
+  permissionAId   String
+  permissionA     Permission @relation("SoDPermissionA", fields: [permissionAId], references: [id], onDelete: Restrict)
+  permissionBId   String
+  permissionB     Permission @relation("SoDPermissionB", fields: [permissionBId], references: [id], onDelete: Restrict)
+  description     String
+  makerChecker    Boolean  @default(true)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, code])
+  @@index([permissionAId])
+  @@index([permissionBId])
+  @@schema("lashibi")
+}
+
+model ApprovalPolicy {
+  id                    String   @id @default(cuid())
+  tenantId              String
+  code                  String
+  actionPattern         String
+  resourceType          String?
+  minimumApprovals      Int      @default(1)
+  makerCheckerRequired  Boolean  @default(true)
+  stepUpRequired        Boolean  @default(false)
+  approverPermission    String
+  amountThreshold       Decimal? @db.Decimal(18, 2)
+  classificationFloor   Classification?
+  active                Boolean  @default(true)
+  createdAt             DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([tenantId, code])
+  @@index([tenantId, actionPattern, active])
+  @@schema("lashibi")
+}
+
+model ApprovalRequest {
+  id                String         @id @default(cuid())
+  tenantId          String
+  policyCode        String?
+  action            String
+  resourceType      String?
+  resourceId        String?
+  classification    Classification @default(RESTRICTED)
+  requestedById     String
+  requestedBy       User           @relation(fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict)
+  reason             String
+  payload            Json?
+  status             ApprovalStatus @default(PENDING)
+  requiredApprovals  Int            @default(1)
+  expiresAt          DateTime?       @db.Timestamptz(3)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(3)
+
+  decisions          ApprovalDecision[]
+  temporaryGrants    TemporaryAccessGrant[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, resourceType, resourceId])
+  @@schema("lashibi")
+}
+
+model ApprovalDecision {
+  id              String               @id @default(cuid())
+  tenantId        String
+  approvalRequestId String
+  approvalRequest ApprovalRequest      @relation(fields: [tenantId, approvalRequestId], references: [tenantId, id], onDelete: Restrict)
+  approverId      String
+  approver        User                 @relation(fields: [tenantId, approverId], references: [tenantId, id], onDelete: Restrict)
+  decision        ApprovalDecisionType
+  reason          String?
+  stepUpSessionId String?
+  createdAt       DateTime             @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, approvalRequestId, approverId])
+  @@index([tenantId, approverId])
+  @@schema("lashibi")
+}
+
+model TemporaryAccessGrant {
+  id                String               @id @default(cuid())
+  tenantId          String
+  userId            String
+  user              User                 @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
+  permissionId      String
+  permission        Permission           @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+  scopeType         ScopeType
+  branchId          String?
+  resourceType      String?
+  resourceId        String?
+  approvalRequestId String?
+  approvalRequest   ApprovalRequest?     @relation(fields: [tenantId, approvalRequestId], references: [tenantId, id], onDelete: Restrict)
+  status            TemporaryGrantStatus @default(PENDING)
+  startsAt          DateTime             @db.Timestamptz(3)
+  expiresAt         DateTime             @db.Timestamptz(3)
+  revokedAt         DateTime?            @db.Timestamptz(3)
+  reason            String
+  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, userId, status, expiresAt])
+  @@index([tenantId, resourceType, resourceId])
+  @@schema("lashibi")
+}
+
+model BreakGlassSession {
+  id                  String           @id @default(cuid())
+  tenantId            String
+  userId              String
+  user                User             @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
+  scope               String
+  reason              String
+  status              BreakGlassStatus @default(REQUESTED)
+  startedAt           DateTime?        @db.Timestamptz(3)
+  expiresAt           DateTime?        @db.Timestamptz(3)
+  endedAt             DateTime?        @db.Timestamptz(3)
+  retrospectiveReview String?
+  reviewedById        String?
+  reviewedAt          DateTime?        @db.Timestamptz(3)
+  createdAt           DateTime         @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, userId, status])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// SESSION, DEVICE, AUTHENTICATION, AUTHORIZATION EVIDENCE, AUDIT
+// =============================================================================
+
+model DeviceRegistration {
+  id          String            @id @default(cuid())
+  tenantId    String
+  userId      String
+  user        User              @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
+  deviceKey   String
+  label       String?
+  platform    String?
+  trustStatus DeviceTrustStatus @default(UNKNOWN)
+  firstSeenAt DateTime          @default(now()) @db.Timestamptz(3)
+  lastSeenAt  DateTime          @default(now()) @db.Timestamptz(3)
+  revokedAt   DateTime?         @db.Timestamptz(3)
+  metadata    Json?
+
+  sessions    SecuritySession[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, deviceKey])
+  @@index([tenantId, userId, trustStatus])
+  @@schema("lashibi")
+}
+
+model SecuritySession {
+  id              String        @id @default(cuid())
+  tenantId        String
+  userId          String
+  user            User          @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
+  deviceId        String?
+  device          DeviceRegistration? @relation(fields: [tenantId, deviceId], references: [tenantId, id], onDelete: Restrict)
+  status          SessionStatus @default(ACTIVE)
+  authLevel       Int           @default(1)
+  mfaSatisfied    Boolean       @default(false)
+  riskScore       Int           @default(0)
+  issuedAt        DateTime      @default(now()) @db.Timestamptz(3)
+  lastSeenAt      DateTime      @default(now()) @db.Timestamptz(3)
+  idleExpiresAt   DateTime      @db.Timestamptz(3)
+  absoluteExpiresAt DateTime    @db.Timestamptz(3)
+  stepUpExpiresAt DateTime?     @db.Timestamptz(3)
+  revokedAt       DateTime?     @db.Timestamptz(3)
+  revokeReason    String?
+  ipAddress       String?
+  userAgent       String?
+  context         Json?
+
+  @@unique([tenantId, id])
+  @@index([tenantId, userId, status])
+  @@index([tenantId, absoluteExpiresAt])
+  @@schema("lashibi")
+}
+
+model AuthenticationEvent {
+  id              String        @id @default(cuid())
+  tenantId        String
+  userId          String?
+  sessionId       String?
+  eventType       AuthEventType
+  result          String?
+  reason          String?
+  authLevel       Int?
+  riskScore       Int?
+  deviceKey       String?
+  ipAddress       String?
+  userAgent       String?
+  context         Json?
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, userId, createdAt])
+  @@index([tenantId, sessionId, createdAt])
+  @@schema("lashibi")
+}
+
+model AuthDecision {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  principalType      PrincipalType
+  principalId        String
+  principalSnapshot  Json?
+  sessionId          String?
+  requestId          String?
+  correlationId      String?
+  roleSnapshot       Json?
+  scopeSnapshot      Json?
+  action              String
+  resourceType        String?
+  resourceId          String?
+  resourceTenantId    String?
+  resourceBranchId    String?
+  classification      Classification?
+  policyVersion       String
+  result              AuthDecisionResult
+  reasonCode          String?
+  reason              String
+  context             Json?
+  ipAddress           String?
+  deviceId            String?
+  userAgent           String?
+  integrityHash       String?
+  createdAt           DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, principalId, createdAt])
+  @@index([tenantId, action, result, createdAt])
+  @@index([tenantId, resourceType, resourceId, createdAt])
+  @@schema("lashibi")
+}
+
+model AuditEvent {
+  id               String         @id @default(cuid())
+  tenantId         String
+  actorType        PrincipalType
+  actorId          String?
+  actorSnapshot    Json?
+  sessionId        String?
+  requestId        String?
+  correlationId    String?
+  action           String
+  entityType       String
+  entityId         String
+  branchId         String?
+  classification   Classification @default(INTERNAL)
+  before           Json?
+  after            Json?
+  metadata         Json?
+  previousHash     String?
+  integrityHash    String?
+  occurredAt       DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, entityType, entityId, occurredAt])
+  @@index([tenantId, actorId, occurredAt])
+  @@index([tenantId, correlationId])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// PEOPLE / HR / DRIVER / TECHNICIAN
+// =============================================================================
+
+model EmployeeProfile {
+  id              String           @id @default(cuid())
+  tenantId        String
+  userId          String
+  user            User             @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
+  employeeNumber  String
+  branchId        String
+  jobTitle        String
+  employmentStatus EmploymentStatus @default(ACTIVE)
+  hireDate        DateTime?        @db.Date
+  phone           String?
+  emergencyContact Json?
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+
+  driverProfile     DriverProfile?
+  technicianProfile TechnicianProfile?
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, userId])
+  @@unique([tenantId, employeeNumber])
+  @@index([tenantId, branchId, employmentStatus])
+  @@schema("lashibi")
+}
+
+model DriverProfile {
+  id                 String                   @id @default(cuid())
+  tenantId           String
+  employeeProfileId  String
+  employeeProfile    EmployeeProfile          @relation(fields: [tenantId, employeeProfileId], references: [tenantId, id], onDelete: Restrict)
+  licenceNumber      String
+  licenceClass       String
+  licenceIssuedAt    DateTime?                @db.Date
+  licenceExpiry      DateTime                 @db.Date
+  availability       DriverAvailabilityStatus @default(AVAILABLE)
+  safetyScore        Int                      @default(100)
+  customerRating     Decimal?                 @db.Decimal(3, 2)
+  classification     Classification           @default(CONFIDENTIAL)
+  createdAt          DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                 @updatedAt @db.Timestamptz(3)
+
+  assignments        RentalDriverAssignment[]
+  shifts             DriverShift[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, employeeProfileId])
+  @@unique([tenantId, licenceNumber])
+  @@index([tenantId, availability])
+  @@schema("lashibi")
+}
+
+model DriverShift {
+  id              String   @id @default(cuid())
+  tenantId        String
+  driverId        String
+  driver          DriverProfile @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
+  branchId        String
+  startsAt        DateTime @db.Timestamptz(3)
+  endsAt          DateTime? @db.Timestamptz(3)
+  checkInAt       DateTime? @db.Timestamptz(3)
+  checkOutAt      DateTime? @db.Timestamptz(3)
+  notes           String?
+
+  @@index([tenantId, driverId, startsAt])
+  @@schema("lashibi")
+}
+
+model TechnicianProfile {
+  id                 String                         @id @default(cuid())
+  tenantId           String
+  employeeProfileId  String
+  employeeProfile    EmployeeProfile                @relation(fields: [tenantId, employeeProfileId], references: [tenantId, id], onDelete: Restrict)
+  skillTags          String[]
+  availability       TechnicianAvailabilityStatus   @default(AVAILABLE)
+  certificationData Json?
+  createdAt          DateTime                       @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                       @updatedAt @db.Timestamptz(3)
+
+  assignments        WorkshopAssignment[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, employeeProfileId])
+  @@index([tenantId, availability])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// FILE / DOCUMENT EVIDENCE
+// =============================================================================
+
+model FileAsset {
+  id              String         @id @default(cuid())
+  tenantId        String
+  storageProvider String
+  bucket          String
+  objectKey       String
+  originalName    String?
+  mimeType        String
+  sizeBytes       BigInt
+  sha256          String
+  classification  Classification @default(INTERNAL)
+  uploadedById    String?
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+
+  customerDocuments CustomerDocument[]
+  vehicleDocuments  VehicleDocument[]
+  inspectionMedia   InspectionMedia[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, bucket, objectKey])
+  @@index([tenantId, sha256])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// CUSTOMER / CRM
+// =============================================================================
+
+model Customer {
+  id              String         @id @default(cuid())
+  tenantId        String
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customerNumber  String
+  type            CustomerType
+  status          CustomerStatus @default(PROSPECT)
+  displayName     String
+  primaryPhone    String?
+  primaryEmail    String?
+  classification  Classification @default(CONFIDENTIAL)
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+  archivedAt      DateTime?      @db.Timestamptz(3)
+
+  contacts        CustomerContact[]
+  identities      CustomerIdentity[]
+  documents       CustomerDocument[]
+  consents        CustomerConsent[]
+  corporate       CorporateAccount?
+  reservations    RentalReservation[]
+  rentalAgreements RentalAgreement[]
+  workshopJobs    WorkshopJob[]
+  salesLeads      SalesLead[]
+  testDrives      TestDrive[]
+  vehicleSales    VehicleSale[]
+  invoices        Invoice[]
+  communications  CommunicationLog[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, customerNumber])
+  @@index([tenantId, status])
+  @@index([tenantId, primaryPhone])
+  @@schema("lashibi")
+}
+
+model CustomerContact {
+  id          String   @id @default(cuid())
+  tenantId    String
+  customerId  String
+  customer    Customer @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  kind        String
+  value       String
+  label       String?
+  primary     Boolean  @default(false)
+  verifiedAt  DateTime? @db.Timestamptz(3)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, customerId])
+  @@index([tenantId, kind, value])
+  @@schema("lashibi")
+}
+
+model CustomerIdentity {
+  id                    String         @id @default(cuid())
+  tenantId              String
+  customerId            String
+  customer              Customer       @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  type                  IdentityType
+  identifierCiphertext  String?
+  identifierHash        String
+  identifierLast4       String?
+  issuingCountry        String?        @db.VarChar(2)
+  issuedAt              DateTime?      @db.Date
+  expiresAt             DateTime?      @db.Date
+  verifiedAt            DateTime?      @db.Timestamptz(3)
+  classification        Classification @default(RESTRICTED)
+  createdAt             DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, type, identifierHash])
+  @@index([tenantId, customerId])
+  @@schema("lashibi")
+}
+
+model CustomerDocument {
+  id              String              @id @default(cuid())
+  tenantId        String
+  customerId      String
+  customer        Customer            @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  fileAssetId     String
+  fileAsset       FileAsset           @relation(fields: [tenantId, fileAssetId], references: [tenantId, id], onDelete: Restrict)
+  type            IdentityType?
+  title           String
+  classification  Classification      @default(RESTRICTED)
+  validFrom       DateTime?           @db.Date
+  validTo         DateTime?           @db.Date
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, customerId])
+  @@schema("lashibi")
+}
+
+model CustomerConsent {
+  id            String      @id @default(cuid())
+  tenantId      String
+  customerId    String
+  customer      Customer    @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  type          ConsentType
+  version       String
+  granted       Boolean
+  capturedAt    DateTime    @default(now()) @db.Timestamptz(3)
+  withdrawnAt   DateTime?   @db.Timestamptz(3)
+  evidence      Json?
+
+  @@index([tenantId, customerId, type])
+  @@schema("lashibi")
+}
+
+model CorporateAccount {
+  id            String   @id @default(cuid())
+  tenantId      String
+  customerId    String
+  customer      Customer @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  legalName     String
+  tinHash       String?
+  registrationNo String?
+  creditLimit   Decimal? @db.Decimal(18, 2)
+  paymentTermsDays Int?  
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, customerId])
+  @@index([tenantId, legalName])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// VEHICLE, PASSPORT, DOCUMENTS, MILEAGE
+// =============================================================================
+
+model Vehicle {
+  id                String               @id @default(cuid())
+  tenantId          String
+  tenant            Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  homeBranchId      String
+  homeBranch        Branch               @relation(fields: [tenantId, homeBranchId], references: [tenantId, id], onDelete: Restrict)
+  fleetNumber       String
+  vin               String?
+  chassisNumber     String?
+  engineNumber      String?
+  currentPlateNumber String?
+  make              String
+  model             String
+  trim              String?
+  year              Int
+  colour            String?
+  fuelType          FuelType?
+  transmission      TransmissionType?
+  bodyType          String?
+  seatCount         Int?
+  vehicleClass      String?
+  ownershipType     VehicleOwnershipType @default(OWNED)
+  status            VehicleStatus        @default(ONBOARDING)
+  currentOdometer   Int                  @default(0)
+  acquisitionDate   DateTime?            @db.Date
+  acquisitionCost   Decimal?             @db.Decimal(18, 2)
+  rentalEligible    Boolean              @default(false)
+  salesEligible     Boolean              @default(false)
+  classification    Classification       @default(INTERNAL)
+  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @db.Timestamptz(3)
+  archivedAt        DateTime?            @db.Timestamptz(3)
+
+  registrations     VehicleRegistration[]
+  documents         VehicleDocument[]
+  passport          VehiclePassport?
+  odometerReadings  OdometerReading[]
+  deviceAssignments VehicleDeviceAssignment[]
+  telemetry         TelemetryReading[]
+  trips             VehicleTrip[]
+  geofenceAssignments VehicleGeofenceAssignment[]
+  telemetryAlerts   TelemetryAlert[]
+  allocations       RentalVehicleAllocation[]
+  rentalAgreements  RentalAgreement[]
+  inspections       VehicleInspection[]
+  damages           DamageRecord[]
+  workshopJobs      WorkshopJob[]
+  insurancePolicies InsurancePolicy[]
+  insuranceClaims   InsuranceClaim[]
+  salesListings     VehicleSaleListing[]
+  testDrives        TestDrive[]
+  vehicleSales      VehicleSale[]
+  maintenancePlans  VehicleMaintenancePlan[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, fleetNumber])
+  @@unique([tenantId, vin])
+  @@unique([tenantId, chassisNumber])
+  @@unique([tenantId, currentPlateNumber])
+  @@index([tenantId, homeBranchId, status])
+  @@index([tenantId, rentalEligible, status])
+  @@schema("lashibi")
+}
+
+model VehicleRegistration {
+  id              String   @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle  @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  plateNumber     String
+  countryCode     String   @db.VarChar(2)
+  validFrom       DateTime @db.Date
+  validTo         DateTime? @db.Date
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, plateNumber, validFrom])
+  @@index([tenantId, vehicleId, active])
+  @@schema("lashibi")
+}
+
+model VehicleDocument {
+  id              String              @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle             @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  fileAssetId     String
+  fileAsset       FileAsset           @relation(fields: [tenantId, fileAssetId], references: [tenantId, id], onDelete: Restrict)
+  type            VehicleDocumentType
+  documentNumber  String?
+  validFrom       DateTime?           @db.Date
+  validTo         DateTime?           @db.Date
+  classification  Classification      @default(RESTRICTED)
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, vehicleId, type])
+  @@index([tenantId, validTo])
+  @@schema("lashibi")
+}
+
+model VehiclePassport {
+  id              String         @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle        @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  trustScore      Int            @default(0)
+  healthScore     Int            @default(0)
+  verifiedRecords Int            @default(0)
+  classification  Classification @default(RESTRICTED)
+  issuedAt        DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, vehicleId])
+  @@schema("lashibi")
+}
+
+model OdometerReading {
+  id              String         @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle        @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  readingKm       Int
+  source          OdometerSource
+  rentalAgreementId String?
+  inspectionId    String?
+  workshopJobId   String?
+  capturedById    String?
+  capturedAt      DateTime       @default(now()) @db.Timestamptz(3)
+  evidenceFileId  String?
+  verifiedAt      DateTime?      @db.Timestamptz(3)
+  correctionOfId  String?
+  correctionOf    OdometerReading? @relation("OdometerCorrections", fields: [correctionOfId], references: [id], onDelete: Restrict)
+  corrections     OdometerReading[] @relation("OdometerCorrections")
+  reason          String?
+  classification  Classification @default(RESTRICTED)
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, vehicleId, capturedAt])
+  @@index([tenantId, rentalAgreementId])
+  @@schema("lashibi")
+}
+
+model VehicleMaintenancePlan {
+  id              String   @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle  @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  name            String
+  intervalKm      Int?
+  intervalDays    Int?
+  nextDueKm       Int?
+  nextDueAt       DateTime? @db.Date
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([tenantId, vehicleId, active])
+  @@index([tenantId, nextDueAt])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// TRACKING, TELEMETRY, TRIPS, GEOFENCES
+// =============================================================================
+
+model TrackingDevice {
+  id                String               @id @default(cuid())
+  tenantId          String
+  provider          String
+  externalDeviceId  String
+  imeiHash          String?
+  serialNumber      String?
+  status            TrackingDeviceStatus @default(PROVISIONED)
+  installedAt       DateTime?            @db.Timestamptz(3)
+  lastSeenAt        DateTime?            @db.Timestamptz(3)
+  classification    Classification       @default(RESTRICTED)
+  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
+
+  assignments       VehicleDeviceAssignment[]
+  telemetry         TelemetryReading[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, provider, externalDeviceId])
+  @@index([tenantId, status])
+  @@schema("lashibi")
+}
+
+model VehicleDeviceAssignment {
+  id          String         @id @default(cuid())
+  tenantId    String
+  vehicleId   String
+  vehicle     Vehicle        @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  deviceId    String
+  device      TrackingDevice @relation(fields: [tenantId, deviceId], references: [tenantId, id], onDelete: Restrict)
+  startsAt    DateTime       @default(now()) @db.Timestamptz(3)
+  endsAt      DateTime?      @db.Timestamptz(3)
+  active      Boolean        @default(true)
+
+  @@index([tenantId, vehicleId, active])
+  @@index([tenantId, deviceId, active])
+  @@schema("lashibi")
+}
+
+model TelemetryReading {
+  id              BigInt         @id @default(autoincrement())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle        @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  deviceId        String
+  device          TrackingDevice @relation(fields: [tenantId, deviceId], references: [tenantId, id], onDelete: Restrict)
+  capturedAt      DateTime       @db.Timestamptz(3)
+  receivedAt      DateTime       @default(now()) @db.Timestamptz(3)
+  latitude        Decimal?       @db.Decimal(9, 6)
+  longitude       Decimal?       @db.Decimal(9, 6)
+  speedKph        Decimal?       @db.Decimal(7, 2)
+  headingDegrees  Decimal?       @db.Decimal(6, 2)
+  altitudeMeters  Decimal?       @db.Decimal(9, 2)
+  ignitionOn      Boolean?
+  fuelPercent     Decimal?       @db.Decimal(5, 2)
+  batteryVolts    Decimal?       @db.Decimal(6, 2)
+  odometerKm      Decimal?       @db.Decimal(12, 2)
+  engineMinutes   Int?
+  signalQuality   Int?
+  rawPayload      Json?
+  classification  Classification @default(RESTRICTED)
+
+  @@index([tenantId, vehicleId, capturedAt])
+  @@index([tenantId, deviceId, capturedAt])
+  @@schema("lashibi")
+}
+
+model VehicleTrip {
+  id                String     @id @default(cuid())
+  tenantId          String
+  vehicleId         String
+  vehicle           Vehicle    @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  rentalAgreementId String?
+  driverId          String?
+  status            TripStatus @default(PLANNED)
+  startedAt         DateTime?  @db.Timestamptz(3)
+  endedAt           DateTime?  @db.Timestamptz(3)
+  startOdometerKm   Decimal?   @db.Decimal(12, 2)
+  endOdometerKm     Decimal?   @db.Decimal(12, 2)
+  distanceKm        Decimal?   @db.Decimal(12, 2)
+  maxSpeedKph       Decimal?   @db.Decimal(7, 2)
+  routeSummary      Json?
+  createdAt         DateTime   @default(now()) @db.Timestamptz(3)
+
+  events            TripEvent[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, vehicleId, startedAt])
+  @@index([tenantId, rentalAgreementId])
+  @@schema("lashibi")
+}
+
+model TripEvent {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tripId      String
+  trip        VehicleTrip @relation(fields: [tenantId, tripId], references: [tenantId, id], onDelete: Restrict)
+  type        String
+  occurredAt  DateTime @db.Timestamptz(3)
+  latitude    Decimal? @db.Decimal(9, 6)
+  longitude   Decimal? @db.Decimal(9, 6)
+  value       Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, tripId, occurredAt])
+  @@schema("lashibi")
+}
+
+model Geofence {
+  id              String         @id @default(cuid())
+  tenantId        String
+  name            String
+  branchId        String?
+  geometry        Json
+  classification  Classification @default(RESTRICTED)
+  active          Boolean        @default(true)
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+
+  assignments     VehicleGeofenceAssignment[]
+  events          GeofenceEvent[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, active])
+  @@schema("lashibi")
+}
+
+model VehicleGeofenceAssignment {
+  id          String   @id @default(cuid())
+  tenantId    String
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  geofenceId  String
+  geofence    Geofence @relation(fields: [tenantId, geofenceId], references: [tenantId, id], onDelete: Restrict)
+  startsAt    DateTime @default(now()) @db.Timestamptz(3)
+  endsAt      DateTime? @db.Timestamptz(3)
+  active      Boolean  @default(true)
+
+  @@unique([tenantId, vehicleId, geofenceId, startsAt])
+  @@index([tenantId, vehicleId, active])
+  @@schema("lashibi")
+}
+
+model GeofenceEvent {
+  id          String   @id @default(cuid())
+  tenantId    String
+  geofenceId  String
+  geofence    Geofence @relation(fields: [tenantId, geofenceId], references: [tenantId, id], onDelete: Restrict)
+  vehicleId   String
+  eventType   TelemetryAlertType
+  occurredAt  DateTime @db.Timestamptz(3)
+  latitude    Decimal? @db.Decimal(9, 6)
+  longitude   Decimal? @db.Decimal(9, 6)
+  telemetryId BigInt?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, vehicleId, occurredAt])
+  @@index([tenantId, geofenceId, occurredAt])
+  @@schema("lashibi")
+}
+
+model TelemetryAlert {
+  id              String               @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle              @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  type            TelemetryAlertType
+  status          TelemetryAlertStatus @default(OPEN)
+  severity        IncidentSeverity     @default(MEDIUM)
+  openedAt        DateTime             @default(now()) @db.Timestamptz(3)
+  acknowledgedAt  DateTime?            @db.Timestamptz(3)
+  resolvedAt      DateTime?            @db.Timestamptz(3)
+  details         Json?
+  classification  Classification       @default(RESTRICTED)
+
+  @@index([tenantId, vehicleId, status, openedAt])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// RENTAL RESERVATION → AGREEMENT → DISPATCH → TRIP → RETURN
+// =============================================================================
+
+model RentalReservation {
+  id                    String            @id @default(cuid())
+  tenantId              String
+  branchId              String
+  branch                Branch            @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  customerId            String
+  customer              Customer          @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  reservationCode       String
+  rentalType            RentalType
+  status                ReservationStatus @default(DRAFT)
+  pickupLocation        Json?
+  returnLocation        Json?
+  scheduledPickupAt     DateTime          @db.Timestamptz(3)
+  scheduledReturnAt     DateTime          @db.Timestamptz(3)
+  requestedVehicleClass String?
+  requestedDriver       Boolean           @default(false)
+  currencyCode          String            @default("GHS") @db.VarChar(3)
+  quotedAmount          Decimal?          @db.Decimal(18, 2)
+  createdById           String
+  createdBy             User              @relation(fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict)
+  classification        Classification    @default(RESTRICTED)
+  createdAt             DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @db.Timestamptz(3)
+  cancelledAt           DateTime?         @db.Timestamptz(3)
+
+  allocations           RentalVehicleAllocation[]
+  agreements            RentalAgreement[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, reservationCode])
+  @@index([tenantId, branchId, status, scheduledPickupAt])
+  @@index([tenantId, customerId, createdAt])
+  @@schema("lashibi")
+}
+
+model RentalVehicleAllocation {
+  id              String                  @id @default(cuid())
+  tenantId        String
+  reservationId   String
+  reservation     RentalReservation       @relation(fields: [tenantId, reservationId], references: [tenantId, id], onDelete: Restrict)
+  vehicleId       String
+  vehicle         Vehicle                 @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  status          VehicleAllocationStatus @default(HELD)
+  allocatedFrom   DateTime                @db.Timestamptz(3)
+  allocatedUntil  DateTime                @db.Timestamptz(3)
+  assignedById    String
+  reason          String?
+  createdAt       DateTime                @default(now()) @db.Timestamptz(3)
+  releasedAt      DateTime?               @db.Timestamptz(3)
+
+  @@index([tenantId, reservationId, status])
+  @@index([tenantId, vehicleId, allocatedFrom, allocatedUntil])
+  @@schema("lashibi")
+}
+
+model RentalAgreement {
+  id                    String                @id @default(cuid())
+  tenantId              String
+  reservationId         String
+  reservation           RentalReservation     @relation(fields: [tenantId, reservationId], references: [tenantId, id], onDelete: Restrict)
+  branchId              String
+  branch                Branch                @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  customerId            String
+  customer              Customer              @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  vehicleId             String
+  vehicle               Vehicle               @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  handledById           String
+  handledBy             User                  @relation(fields: [tenantId, handledById], references: [tenantId, id], onDelete: Restrict)
+  agreementCode         String
+  rentalType            RentalType
+  status                RentalAgreementStatus @default(DRAFT)
+  renterNameSnapshot    String
+  renterPhoneSnapshot   String?
+  scheduledPickupAt     DateTime              @db.Timestamptz(3)
+  actualPickupAt        DateTime?             @db.Timestamptz(3)
+  dueReturnAt           DateTime              @db.Timestamptz(3)
+  actualReturnAt        DateTime?             @db.Timestamptz(3)
+  currencyCode          String                @default("GHS") @db.VarChar(3)
+  baseDailyRate         Decimal               @db.Decimal(18, 2)
+  agreedDays            Int
+  includedKmTotal       Int?
+  excessKmRate          Decimal?              @db.Decimal(18, 2)
+  driverDailyRate       Decimal?              @db.Decimal(18, 2)
+  deliveryCharge        Decimal               @default(0) @db.Decimal(18, 2)
+  insuranceCharge       Decimal               @default(0) @db.Decimal(18, 2)
+  discountAmount        Decimal               @default(0) @db.Decimal(18, 2)
+  taxAmount             Decimal               @default(0) @db.Decimal(18, 2)
+  depositRequired       Decimal               @default(0) @db.Decimal(18, 2)
+  grossAmount           Decimal               @db.Decimal(18, 2)
+  classification        Classification        @default(RESTRICTED)
+  createdAt             DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime              @updatedAt @db.Timestamptz(3)
+
+  driverAssignments     RentalDriverAssignment[]
+  extensions            RentalExtension[]
+  charges               RentalCharge[]
+  deposits              RentalDeposit[]
+  incidents             RentalIncident[]
+  fines                 RentalFine[]
+  tolls                 RentalToll[]
+  reconciliations       RentalReturnReconciliation[]
+  inspections           VehicleInspection[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, agreementCode])
+  @@index([tenantId, branchId, status, dueReturnAt])
+  @@index([tenantId, vehicleId, status])
+  @@index([tenantId, customerId, createdAt])
+  @@schema("lashibi")
+}
+
+model RentalDriverAssignment {
+  id              String                 @id @default(cuid())
+  tenantId        String
+  rentalAgreementId String
+  rentalAgreement RentalAgreement        @relation(fields: [tenantId, rentalAgreementId], references: [tenantId, id], onDelete: Restrict)
+  driverId        String
+  driver          DriverProfile          @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
+  assignedById    String
+  status          DriverAssignmentStatus @default(ASSIGNED)
+  assignedAt      DateTime               @default(now()) @db.Timestamptz(3)
+  acceptedAt      DateTime?              @db.Timestamptz(3)
+  startedAt       DateTime?              @db.Timestamptz(3)
+  endedAt         DateTime?              @db.Timestamptz(3)
+  reason          String?
+
+  @@index([tenantId, rentalAgreementId, status])
+  @@index([tenantId, driverId, status])
+  @@schema("lashibi")
+}
+
+model RentalExtension {
+  id                String                @id @default(cuid())
+  tenantId          String
+  rentalAgreementId String
+  rentalAgreement   RentalAgreement       @relation(fields: [tenantId, rentalAgreementId], references: [tenantId, id], onDelete: Restrict)
+  status            RentalExtensionStatus @default(REQUESTED)
+  oldDueReturnAt    DateTime              @db.Timestamptz(3)
+  requestedReturnAt DateTime              @db.Timestamptz(3)
+  approvedReturnAt  DateTime?             @db.Timestamptz(3)
+  requestedByType   PrincipalType
+  requestedById     String?
+  additionalCharge  Decimal?              @db.Decimal(18, 2)
+  approvalRequestId String?
+  reason            String?
+  createdAt         DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @db.Timestamptz(3)
+
+  @@index([tenantId, rentalAgreementId, status])
+  @@schema("lashibi")
+}
+
+model RentalCharge {
+  id                String           @id @default(cuid())
+  tenantId          String
+  rentalAgreementId String
+  rentalAgreement   RentalAgreement  @relation(fields: [tenantId, rentalAgreementId], references: [tenantId, id], onDelete: Restrict)
+  type              RentalChargeType
+  description       String
+  quantity          Decimal          @default(1) @db.Decimal(12, 3)
+  unitAmount        Decimal          @db.Decimal(18, 2)
+  amount            Decimal          @db.Decimal(18, 2)
+  taxable           Boolean          @default(true)
+  sourceType        String?
+  sourceId          String?
+  createdAt         DateTime         @default(now()) @db.Timestamptz(3)
+  reversedAt        DateTime?        @db.Timestamptz(3)
+
+  @@index([tenantId, rentalAgreementId, type])
+  @@schema("lashibi")
+}
+
+model RentalDeposit {
+  id                String        @id @default(cuid())
+  tenantId          String
+  rentalAgreementId String
+  rentalAgreement   RentalAgreement @relation(fields: [tenantId, rentalAgreementId], references: [tenantId, id], onDelete: Restrict)
+  status            DepositStatus @default(REQUIRED)
+  requiredAmount    Decimal       @db.Decimal(18, 2)
+  heldAmount        Decimal       @default(0) @db.Decimal(18, 2)
+  releasedAmount    Decimal       @default(0) @db.Decimal(18, 2)
+  forfeitedAmount   Decimal       @default(0) @db.Decimal(18, 2)
+  paymentId         String?
+  refundId          String?
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
+
+  @@index([tenantId, rentalAgreementId, status])
+  @@schema("lashibi")
+}
+
+model RentalIncident {
+  id                String           @id @default(cuid())
+  tenantId          String
+  rentalAgreementId String
+  rentalAgreement   RentalAgreement  @relation(fields: [tenantId, rentalAgreementId], references: [tenantId, id], onDelete: Restrict)
+  severity          IncidentSeverity
+  status            IncidentStatus   @default(OPEN)
+  type              String
+  description       String
+  occurredAt        DateTime         @db.Timestamptz(3)
+  latitude          Decimal?         @db.Decimal(9, 6)
+  longitude         Decimal?         @db.Decimal(9, 6)
+  policeReference   String?
+  insuranceClaimId  String?
+  createdAt         DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @db.Timestamptz(3)
+
+  @@index([tenantId, rentalAgreementId, status])
+  @@schema("lashibi")
+}
+
+model RentalFine {
+  id                String   @id @default(cuid())
+  tenantId          String
+  rentalAgreementId String
+  rentalAgreement   RentalAgreement @relation(fields: [tenantId, rentalAgreementId], references: [tenantId, id], onDelete: Restrict)
+  authority         String?
+  reference         String?
+  description       String
+  occurredAt        DateTime? @db.Timestamptz(3)
+  amount            Decimal  @db.Decimal(18, 2)
+  customerLiable    Boolean  @default(true)
+  recovered         Boolean  @default(false)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, rentalAgreementId, recovered])
+  @@schema("lashibi")
+}
+
+model RentalToll {
+  id                String   @id @default(cuid())
+  tenantId          String
+  rentalAgreementId String
+  rentalAgreement   RentalAgreement @relation(fields: [tenantId, rentalAgreementId], references: [tenantId, id], onDelete: Restrict)
+  tollPoint         String?
+  occurredAt        DateTime @db.Timestamptz(3)
+  amount            Decimal  @db.Decimal(18, 2)
+  recovered         Boolean  @default(false)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, rentalAgreementId, occurredAt])
+  @@schema("lashibi")
+}
+
+model RentalReturnReconciliation {
+  id                String   @id @default(cuid())
+  tenantId          String
+  rentalAgreementId String
+  rentalAgreement   RentalAgreement @relation(fields: [tenantId, rentalAgreementId], references: [tenantId, id], onDelete: Restrict)
+  openingOdometerKm Int
+  closingOdometerKm Int
+  includedKm        Int?
+  excessKm          Int      @default(0)
+  excessKmCharge    Decimal  @default(0) @db.Decimal(18, 2)
+  openingFuelPercent Decimal? @db.Decimal(5, 2)
+  closingFuelPercent Decimal? @db.Decimal(5, 2)
+  fuelCharge        Decimal  @default(0) @db.Decimal(18, 2)
+  damageCharge      Decimal  @default(0) @db.Decimal(18, 2)
+  finesAndTolls     Decimal  @default(0) @db.Decimal(18, 2)
+  otherCharges      Decimal  @default(0) @db.Decimal(18, 2)
+  depositReleased   Decimal  @default(0) @db.Decimal(18, 2)
+  finalAmount       Decimal  @db.Decimal(18, 2)
+  approvalRequestId String?
+  completedById     String
+  completedAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, rentalAgreementId])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// INSPECTIONS / DAMAGE / EVIDENCE
+// =============================================================================
+
+model InspectionTemplate {
+  id            String   @id @default(cuid())
+  tenantId      String
+  code          String
+  name          String
+  context       InspectionContext
+  version       Int      @default(1)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  items         InspectionTemplateItem[]
+  inspections   VehicleInspection[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code, version])
+  @@schema("lashibi")
+}
+
+model InspectionTemplateItem {
+  id          String   @id @default(cuid())
+  tenantId    String
+  templateId  String
+  template    InspectionTemplate @relation(fields: [tenantId, templateId], references: [tenantId, id], onDelete: Restrict)
+  code        String
+  label       String
+  category    String
+  required    Boolean  @default(true)
+  sortOrder   Int
+  config      Json?
+
+  findings    InspectionFinding[]
+
+  @@unique([tenantId, templateId, code])
+  @@index([tenantId, templateId, sortOrder])
+  @@schema("lashibi")
+}
+
+model VehicleInspection {
+  id                String           @id @default(cuid())
+  tenantId          String
+  vehicleId         String
+  vehicle           Vehicle          @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  templateId        String
+  template          InspectionTemplate @relation(fields: [tenantId, templateId], references: [tenantId, id], onDelete: Restrict)
+  context           InspectionContext
+  status            InspectionStatus @default(DRAFT)
+  rentalAgreementId String?
+  workshopJobId     String?
+  vehicleSaleId     String?
+  performedById     String
+  startedAt         DateTime         @default(now()) @db.Timestamptz(3)
+  completedAt       DateTime?        @db.Timestamptz(3)
+  odometerKm        Int?
+  fuelPercent       Decimal?         @db.Decimal(5, 2)
+  latitude          Decimal?         @db.Decimal(9, 6)
+  longitude         Decimal?         @db.Decimal(9, 6)
+  customerSignature Json?
+  classification    Classification   @default(RESTRICTED)
+
+  findings          InspectionFinding[]
+  media             InspectionMedia[]
+  damages           DamageRecord[]
+  rentalAgreement   RentalAgreement? @relation(fields: [tenantId, rentalAgreementId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, vehicleId, context, startedAt])
+  @@index([tenantId, rentalAgreementId])
+  @@schema("lashibi")
+}
+
+model InspectionFinding {
+  id              String        @id @default(cuid())
+  tenantId        String
+  inspectionId    String
+  inspection      VehicleInspection @relation(fields: [tenantId, inspectionId], references: [tenantId, id], onDelete: Restrict)
+  templateItemId  String
+  templateItem    InspectionTemplateItem @relation(fields: [templateItemId], references: [id], onDelete: Restrict)
+  status          FindingStatus
+  value           Json?
+  notes           String?
+  severity        IncidentSeverity?
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, inspectionId, templateItemId])
+  @@schema("lashibi")
+}
+
+model InspectionMedia {
+  id              String   @id @default(cuid())
+  tenantId        String
+  inspectionId    String
+  inspection      VehicleInspection @relation(fields: [tenantId, inspectionId], references: [tenantId, id], onDelete: Restrict)
+  fileAssetId     String
+  fileAsset       FileAsset @relation(fields: [tenantId, fileAssetId], references: [tenantId, id], onDelete: Restrict)
+  category        String?
+  capturedAt      DateTime @default(now()) @db.Timestamptz(3)
+  metadata        Json?
+
+  @@index([tenantId, inspectionId])
+  @@schema("lashibi")
+}
+
+model DamageRecord {
+  id              String       @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle      @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  inspectionId    String?
+  inspection      VehicleInspection? @relation(fields: [tenantId, inspectionId], references: [tenantId, id], onDelete: Restrict)
+  position        String
+  type            String
+  description     String?
+  severity        IncidentSeverity
+  status          DamageStatus @default(OBSERVED)
+  firstObservedAt DateTime     @default(now()) @db.Timestamptz(3)
+  repairedAt      DateTime?    @db.Timestamptz(3)
+  classification  Classification @default(RESTRICTED)
+
+  assessments     DamageAssessment[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, vehicleId, status])
+  @@schema("lashibi")
+}
+
+model DamageAssessment {
+  id              String   @id @default(cuid())
+  tenantId        String
+  damageRecordId  String
+  damageRecord    DamageRecord @relation(fields: [tenantId, damageRecordId], references: [tenantId, id], onDelete: Restrict)
+  assessedById    String
+  repairEstimate  Decimal? @db.Decimal(18, 2)
+  customerCharge  Decimal? @db.Decimal(18, 2)
+  insurerCharge   Decimal? @db.Decimal(18, 2)
+  notes           String?
+  approvalRequestId String?
+  assessedAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, damageRecordId])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// WORKSHOP / MAINTENANCE
+// =============================================================================
+
+model WorkBay {
+  id          String   @id @default(cuid())
+  tenantId    String
+  branchId    String
+  branch      Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  code        String
+  name        String
+  bayType     String
+  active      Boolean  @default(true)
+
+  workshopJobs WorkshopJob[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, branchId, code])
+  @@schema("lashibi")
+}
+
+model WorkshopJob {
+  id              String            @id @default(cuid())
+  tenantId        String
+  branchId        String
+  branch          Branch            @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  customerId      String
+  customer        Customer          @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  vehicleId       String
+  vehicle         Vehicle           @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  bayId           String?
+  bay             WorkBay?          @relation(fields: [tenantId, bayId], references: [tenantId, id], onDelete: Restrict)
+  jobCode         String
+  status          WorkshopJobStatus @default(BOOKED)
+  complaint       String
+  diagnosis       String?
+  intakeOdometerKm Int?
+  promisedAt      DateTime?         @db.Timestamptz(3)
+  openedById      String
+  openedAt        DateTime          @default(now()) @db.Timestamptz(3)
+  closedAt        DateTime?         @db.Timestamptz(3)
+  classification  Classification    @default(CONFIDENTIAL)
+
+  assignments     WorkshopAssignment[]
+  estimates       WorkshopEstimate[]
+  items           WorkshopJobItem[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, jobCode])
+  @@index([tenantId, branchId, status, openedAt])
+  @@index([tenantId, vehicleId, openedAt])
+  @@schema("lashibi")
+}
+
+model WorkshopAssignment {
+  id              String   @id @default(cuid())
+  tenantId        String
+  workshopJobId   String
+  workshopJob     WorkshopJob @relation(fields: [tenantId, workshopJobId], references: [tenantId, id], onDelete: Restrict)
+  technicianId    String
+  technician      TechnicianProfile @relation(fields: [tenantId, technicianId], references: [tenantId, id], onDelete: Restrict)
+  assignedById    String
+  assignedAt      DateTime @default(now()) @db.Timestamptz(3)
+  startedAt       DateTime? @db.Timestamptz(3)
+  completedAt     DateTime? @db.Timestamptz(3)
+  labourMinutes   Int?
+
+  @@index([tenantId, workshopJobId])
+  @@index([tenantId, technicianId, assignedAt])
+  @@schema("lashibi")
+}
+
+model WorkshopEstimate {
+  id              String         @id @default(cuid())
+  tenantId        String
+  workshopJobId   String
+  workshopJob     WorkshopJob    @relation(fields: [tenantId, workshopJobId], references: [tenantId, id], onDelete: Restrict)
+  version         Int            @default(1)
+  status          EstimateStatus @default(DRAFT)
+  currencyCode    String         @default("GHS") @db.VarChar(3)
+  subtotal        Decimal        @db.Decimal(18, 2)
+  taxAmount       Decimal        @default(0) @db.Decimal(18, 2)
+  discountAmount  Decimal        @default(0) @db.Decimal(18, 2)
+  totalAmount     Decimal        @db.Decimal(18, 2)
+  sentAt          DateTime?      @db.Timestamptz(3)
+  approvedAt      DateTime?      @db.Timestamptz(3)
+  approvalEvidence Json?
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+
+  lines           WorkshopEstimateLine[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, workshopJobId, version])
+  @@schema("lashibi")
+}
+
+model WorkshopEstimateLine {
+  id              String           @id @default(cuid())
+  tenantId        String
+  estimateId      String
+  estimate        WorkshopEstimate @relation(fields: [tenantId, estimateId], references: [tenantId, id], onDelete: Restrict)
+  type            WorkshopItemType
+  description     String
+  partId          String?
+  quantity        Decimal          @default(1) @db.Decimal(12, 3)
+  unitPrice       Decimal          @db.Decimal(18, 2)
+  amount          Decimal          @db.Decimal(18, 2)
+  sortOrder       Int
+
+  @@index([tenantId, estimateId, sortOrder])
+  @@schema("lashibi")
+}
+
+model WorkshopJobItem {
+  id              String           @id @default(cuid())
+  tenantId        String
+  workshopJobId   String
+  workshopJob     WorkshopJob      @relation(fields: [tenantId, workshopJobId], references: [tenantId, id], onDelete: Restrict)
+  type            WorkshopItemType
+  description     String
+  partId          String?
+  quantity        Decimal          @default(1) @db.Decimal(12, 3)
+  unitCost        Decimal?         @db.Decimal(18, 2)
+  unitPrice       Decimal          @db.Decimal(18, 2)
+  amount          Decimal          @db.Decimal(18, 2)
+  postedAt        DateTime         @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, workshopJobId])
+  @@index([tenantId, partId])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// INVENTORY / PROCUREMENT
+// =============================================================================
+
+model Supplier {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  supplierCode    String
+  name            String
+  phone           String?
+  email           String?
+  tinHash         String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  purchaseOrders  PurchaseOrder[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, supplierCode])
+  @@schema("lashibi")
+}
+
+model Part {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sku             String
+  oemNumber       String?
+  name            String
+  description     String?
+  unitOfMeasure   String
+  costPrice       Decimal? @db.Decimal(18, 2)
+  sellingPrice    Decimal? @db.Decimal(18, 2)
+  reorderLevel    Decimal? @db.Decimal(18, 3)
+  classification  Classification @default(INTERNAL)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  balances        StockBalance[]
+  movements       StockMovement[]
+  purchaseOrderLines PurchaseOrderLine[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sku])
+  @@index([tenantId, oemNumber])
+  @@schema("lashibi")
+}
+
+model StockLocation {
+  id          String   @id @default(cuid())
+  tenantId    String
+  branchId    String
+  branch      Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  code        String
+  name        String
+  active      Boolean  @default(true)
+
+  balances    StockBalance[]
+  movements   StockMovement[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, branchId, code])
+  @@schema("lashibi")
+}
+
+model StockBalance {
+  tenantId    String
+  partId      String
+  part        Part          @relation(fields: [tenantId, partId], references: [tenantId, id], onDelete: Restrict)
+  locationId  String
+  location    StockLocation @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Restrict)
+  onHand      Decimal       @default(0) @db.Decimal(18, 3)
+  reserved    Decimal       @default(0) @db.Decimal(18, 3)
+  available   Decimal       @default(0) @db.Decimal(18, 3)
+  updatedAt   DateTime      @updatedAt @db.Timestamptz(3)
+
+  @@id([tenantId, partId, locationId])
+  @@schema("lashibi")
+}
+
+model StockMovement {
+  id              String            @id @default(cuid())
+  tenantId        String
+  partId          String
+  part            Part              @relation(fields: [tenantId, partId], references: [tenantId, id], onDelete: Restrict)
+  locationId      String
+  location        StockLocation     @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Restrict)
+  type            StockMovementType
+  quantity        Decimal           @db.Decimal(18, 3)
+  unitCost        Decimal?          @db.Decimal(18, 2)
+  sourceType      String
+  sourceId        String
+  performedById   String
+  approvalRequestId String?
+  occurredAt      DateTime          @default(now()) @db.Timestamptz(3)
+  metadata        Json?
+
+  @@index([tenantId, partId, occurredAt])
+  @@index([tenantId, sourceType, sourceId])
+  @@schema("lashibi")
+}
+
+model PurchaseOrder {
+  id              String              @id @default(cuid())
+  tenantId        String
+  branchId        String
+  supplierId      String
+  supplier        Supplier            @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  poCode          String
+  status          PurchaseOrderStatus @default(DRAFT)
+  currencyCode    String              @default("GHS") @db.VarChar(3)
+  subtotal        Decimal             @default(0) @db.Decimal(18, 2)
+  taxAmount       Decimal             @default(0) @db.Decimal(18, 2)
+  totalAmount     Decimal             @default(0) @db.Decimal(18, 2)
+  createdById     String
+  approvalRequestId String?
+  orderedAt       DateTime?           @db.Timestamptz(3)
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+
+  lines           PurchaseOrderLine[]
+  receipts        GoodsReceipt[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, poCode])
+  @@index([tenantId, supplierId, status])
+  @@schema("lashibi")
+}
+
+model PurchaseOrderLine {
+  id              String        @id @default(cuid())
+  tenantId        String
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [tenantId, purchaseOrderId], references: [tenantId, id], onDelete: Restrict)
+  partId          String
+  part            Part          @relation(fields: [tenantId, partId], references: [tenantId, id], onDelete: Restrict)
+  description     String
+  quantity        Decimal       @db.Decimal(18, 3)
+  unitCost        Decimal       @db.Decimal(18, 2)
+  amount          Decimal       @db.Decimal(18, 2)
+
+  @@index([tenantId, purchaseOrderId])
+  @@schema("lashibi")
+}
+
+model GoodsReceipt {
+  id              String             @id @default(cuid())
+  tenantId        String
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder      @relation(fields: [tenantId, purchaseOrderId], references: [tenantId, id], onDelete: Restrict)
+  receiptCode     String
+  status          GoodsReceiptStatus @default(DRAFT)
+  receivedById    String
+  receivedAt      DateTime           @default(now()) @db.Timestamptz(3)
+  postedAt        DateTime?          @db.Timestamptz(3)
+
+  lines           GoodsReceiptLine[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, receiptCode])
+  @@schema("lashibi")
+}
+
+model GoodsReceiptLine {
+  id              String       @id @default(cuid())
+  tenantId        String
+  goodsReceiptId  String
+  goodsReceipt    GoodsReceipt @relation(fields: [tenantId, goodsReceiptId], references: [tenantId, id], onDelete: Restrict)
+  purchaseOrderLineId String
+  partId          String
+  quantityReceived Decimal     @db.Decimal(18, 3)
+  quantityRejected Decimal     @default(0) @db.Decimal(18, 3)
+  notes           String?
+
+  @@index([tenantId, goodsReceiptId])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// VEHICLE SALES
+// =============================================================================
+
+model VehicleSaleListing {
+  id              String   @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle  @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  listingCode     String
+  askingPrice     Decimal  @db.Decimal(18, 2)
+  currencyCode    String   @default("GHS") @db.VarChar(3)
+  published       Boolean  @default(false)
+  publishedAt     DateTime? @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  leads           SalesLead[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, listingCode])
+  @@index([tenantId, vehicleId, published])
+  @@schema("lashibi")
+}
+
+model SalesLead {
+  id              String          @id @default(cuid())
+  tenantId        String
+  customerId      String
+  customer        Customer        @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  listingId       String?
+  listing         VehicleSaleListing? @relation(fields: [tenantId, listingId], references: [tenantId, id], onDelete: Restrict)
+  status          SalesLeadStatus @default(NEW)
+  source          String?
+  assignedToId    String?
+  notes           String?
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status, createdAt])
+  @@schema("lashibi")
+}
+
+model TestDrive {
+  id              String   @id @default(cuid())
+  tenantId        String
+  customerId      String
+  customer        Customer @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  vehicleId       String
+  vehicle         Vehicle  @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  scheduledAt     DateTime @db.Timestamptz(3)
+  startedAt       DateTime? @db.Timestamptz(3)
+  endedAt         DateTime? @db.Timestamptz(3)
+  supervisedById  String?
+  outcome         String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, vehicleId, scheduledAt])
+  @@index([tenantId, customerId])
+  @@schema("lashibi")
+}
+
+model VehicleSale {
+  id              String            @id @default(cuid())
+  tenantId        String
+  customerId      String
+  customer        Customer          @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  vehicleId       String
+  vehicle         Vehicle           @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  saleCode        String
+  status          VehicleSaleStatus @default(DRAFT)
+  currencyCode    String            @default("GHS") @db.VarChar(3)
+  salePrice       Decimal           @db.Decimal(18, 2)
+  discountAmount  Decimal           @default(0) @db.Decimal(18, 2)
+  taxAmount       Decimal           @default(0) @db.Decimal(18, 2)
+  totalAmount     Decimal           @db.Decimal(18, 2)
+  handledById     String
+  reservedAt      DateTime?         @db.Timestamptz(3)
+  paidAt          DateTime?         @db.Timestamptz(3)
+  handedOverAt    DateTime?         @db.Timestamptz(3)
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, saleCode])
+  @@index([tenantId, vehicleId, status])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// INSURANCE / CLAIMS
+// =============================================================================
+
+model InsurancePolicy {
+  id              String                @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle               @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  insurerName     String
+  policyNumber    String
+  policyType      String
+  status          InsurancePolicyStatus @default(ACTIVE)
+  validFrom       DateTime              @db.Date
+  validTo         DateTime              @db.Date
+  premiumAmount   Decimal?              @db.Decimal(18, 2)
+  excessAmount    Decimal?              @db.Decimal(18, 2)
+  classification  Classification        @default(RESTRICTED)
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
+
+  claims          InsuranceClaim[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, policyNumber])
+  @@index([tenantId, vehicleId, status, validTo])
+  @@schema("lashibi")
+}
+
+model InsuranceClaim {
+  id              String               @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  vehicle         Vehicle              @relation(fields: [tenantId, vehicleId], references: [tenantId, id], onDelete: Restrict)
+  policyId        String?
+  policy          InsurancePolicy?     @relation(fields: [tenantId, policyId], references: [tenantId, id], onDelete: Restrict)
+  claimCode       String
+  insurerClaimRef String?
+  status          InsuranceClaimStatus @default(FNOL)
+  incidentAt      DateTime             @db.Timestamptz(3)
+  description     String
+  estimatedAmount Decimal?             @db.Decimal(18, 2)
+  approvedAmount  Decimal?             @db.Decimal(18, 2)
+  settledAmount   Decimal?             @db.Decimal(18, 2)
+  classification  Classification       @default(RESTRICTED)
+  createdAt       DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @db.Timestamptz(3)
+
+  assessments     ClaimAssessment[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, claimCode])
+  @@index([tenantId, vehicleId, status])
+  @@schema("lashibi")
+}
+
+model ClaimAssessment {
+  id              String   @id @default(cuid())
+  tenantId        String
+  claimId         String
+  claim           InsuranceClaim @relation(fields: [tenantId, claimId], references: [tenantId, id], onDelete: Restrict)
+  assessorName    String
+  assessedAt      DateTime @db.Timestamptz(3)
+  assessedAmount  Decimal? @db.Decimal(18, 2)
+  approvedAmount  Decimal? @db.Decimal(18, 2)
+  findings        Json?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, claimId, assessedAt])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// FINANCE / INVOICING / PAYMENTS / TAX
+// =============================================================================
+
+model Invoice {
+  id              String            @id @default(cuid())
+  tenantId        String
+  customerId      String
+  customer        Customer          @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  invoiceNumber   String
+  sourceType      InvoiceSourceType
+  sourceId        String
+  status          InvoiceStatus     @default(DRAFT)
+  currencyCode    String            @default("GHS") @db.VarChar(3)
+  subtotal        Decimal           @db.Decimal(18, 2)
+  taxAmount       Decimal           @default(0) @db.Decimal(18, 2)
+  discountAmount  Decimal           @default(0) @db.Decimal(18, 2)
+  totalAmount     Decimal           @db.Decimal(18, 2)
+  amountPaid      Decimal           @default(0) @db.Decimal(18, 2)
+  amountDue       Decimal           @db.Decimal(18, 2)
+  issuedAt        DateTime?         @db.Timestamptz(3)
+  dueAt           DateTime?         @db.Timestamptz(3)
+  classification  Classification    @default(CONFIDENTIAL)
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+
+  lines           InvoiceLine[]
+  allocations     PaymentAllocation[]
+  taxSubmissions  TaxSubmission[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId, status, dueAt])
+  @@index([tenantId, sourceType, sourceId])
+  @@schema("lashibi")
+}
+
+model InvoiceLine {
+  id              String   @id @default(cuid())
+  tenantId        String
+  invoiceId       String
+  invoice         Invoice  @relation(fields: [tenantId, invoiceId], references: [tenantId, id], onDelete: Restrict)
+  description     String
+  quantity        Decimal  @default(1) @db.Decimal(12, 3)
+  unitPrice       Decimal  @db.Decimal(18, 2)
+  amount          Decimal  @db.Decimal(18, 2)
+  taxCode         String?
+  taxRate         Decimal? @db.Decimal(9, 6)
+  sourceLineType  String?
+  sourceLineId    String?
+
+  @@index([tenantId, invoiceId])
+  @@schema("lashibi")
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  tenantId        String
+  paymentCode     String
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  currencyCode    String        @default("GHS") @db.VarChar(3)
+  amount          Decimal       @db.Decimal(18, 2)
+  payerName       String?
+  payerReference  String?
+  provider        String?
+  providerReference String?
+  receivedById    String?
+  receivedAt      DateTime?     @db.Timestamptz(3)
+  classification  Classification @default(CONFIDENTIAL)
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
+
+  allocations     PaymentAllocation[]
+  refunds         Refund[]
+  providerTransactions PaymentProviderTransaction[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, paymentCode])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, provider, providerReference])
+  @@schema("lashibi")
+}
+
+model PaymentAllocation {
+  id              String   @id @default(cuid())
+  tenantId        String
+  paymentId       String
+  payment         Payment  @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict)
+  invoiceId       String
+  invoice         Invoice  @relation(fields: [tenantId, invoiceId], references: [tenantId, id], onDelete: Restrict)
+  amount          Decimal  @db.Decimal(18, 2)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, paymentId, invoiceId])
+  @@index([tenantId, invoiceId])
+  @@schema("lashibi")
+}
+
+model Refund {
+  id                String       @id @default(cuid())
+  tenantId          String
+  paymentId         String
+  payment           Payment      @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict)
+  refundCode        String
+  status            RefundStatus @default(REQUESTED)
+  amount            Decimal      @db.Decimal(18, 2)
+  reason            String
+  requestedById     String
+  approvalRequestId String?
+  providerReference String?
+  processedAt       DateTime?    @db.Timestamptz(3)
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, refundCode])
+  @@index([tenantId, status, createdAt])
+  @@schema("lashibi")
+}
+
+model PaymentProviderTransaction {
+  id              String        @id @default(cuid())
+  tenantId        String
+  paymentId       String
+  payment         Payment       @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict)
+  provider        String
+  transactionType String
+  externalId      String
+  status          PaymentStatus
+  amount          Decimal       @db.Decimal(18, 2)
+  requestPayload  Json?
+  responsePayload Json?
+  occurredAt      DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, provider, externalId])
+  @@index([tenantId, paymentId, occurredAt])
+  @@schema("lashibi")
+}
+
+model TaxSubmission {
+  id              String              @id @default(cuid())
+  tenantId        String
+  invoiceId       String
+  invoice         Invoice             @relation(fields: [tenantId, invoiceId], references: [tenantId, id], onDelete: Restrict)
+  provider        String              @default("GRA")
+  status          TaxSubmissionStatus @default(QUEUED)
+  externalReference String?
+  requestHash     String?
+  responseCode    String?
+  responseSummary String?
+  attemptCount    Int                 @default(0)
+  lastAttemptAt   DateTime?           @db.Timestamptz(3)
+  acceptedAt      DateTime?           @db.Timestamptz(3)
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, invoiceId, status])
+  @@index([tenantId, status, lastAttemptAt])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// COMMUNICATIONS / INTEGRATIONS / API
+// =============================================================================
+
+model CommunicationLog {
+  id              String                 @id @default(cuid())
+  tenantId        String
+  customerId      String?
+  customer        Customer?              @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  channel         CommunicationChannel
+  direction       CommunicationDirection
+  recipient       String?
+  sender          String?
+  templateCode    String?
+  subject         String?
+  contentSummary  String?
+  provider        String?
+  providerMessageId String?
+  status          String
+  sourceType      String?
+  sourceId        String?
+  classification  Classification         @default(CONFIDENTIAL)
+  occurredAt      DateTime               @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, customerId, occurredAt])
+  @@index([tenantId, sourceType, sourceId])
+  @@schema("lashibi")
+}
+
+model ApiClient {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name            String
+  clientId        String
+  secretHashRef   String?
+  scopes          String[]
+  active          Boolean  @default(true)
+  expiresAt       DateTime? @db.Timestamptz(3)
+  lastUsedAt      DateTime? @db.Timestamptz(3)
+  metadata        Json?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, clientId])
+  @@index([tenantId, active])
+  @@schema("lashibi")
+}
+
+model IntegrationConnection {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  type            String
+  provider        String
+  name            String
+  status          String
+  credentialRef   String?
+  config          Json?
+  lastHealthAt    DateTime? @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  webhookEndpoints WebhookEndpoint[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, type, status])
+  @@schema("lashibi")
+}
+
+model WebhookEndpoint {
+  id              String   @id @default(cuid())
+  tenantId        String
+  integrationId   String
+  integration     IntegrationConnection @relation(fields: [tenantId, integrationId], references: [tenantId, id], onDelete: Restrict)
+  direction       String
+  eventPattern    String
+  endpointUrl     String?
+  signingKeyRef   String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  deliveries      WebhookDelivery[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, integrationId, active])
+  @@schema("lashibi")
+}
+
+model WebhookDelivery {
+  id              String   @id @default(cuid())
+  tenantId        String
+  endpointId      String
+  endpoint        WebhookEndpoint @relation(fields: [tenantId, endpointId], references: [tenantId, id], onDelete: Restrict)
+  eventId         String
+  attempt         Int      @default(1)
+  signatureValid  Boolean?
+  replayRejected  Boolean  @default(false)
+  httpStatus      Int?
+  responseSummary String?
+  sentAt          DateTime? @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, endpointId, eventId, attempt])
+  @@index([tenantId, endpointId, createdAt])
+  @@schema("lashibi")
+}
+
+// =============================================================================
+// AI / DECISION INTELLIGENCE
+// =============================================================================
+
+model AiRun {
+  id                  String         @id @default(cuid())
+  tenantId            String
+  requestedById       String
+  purpose             String
+  sourceType          String?
+  sourceId            String?
+  provider            String
+  modelName           String
+  promptHash          String?
+  inputClassification Classification @default(CONFIDENTIAL)
+  outputClassification Classification @default(CONFIDENTIAL)
+  status              AiRunStatus    @default(QUEUED)
+  policyDecisionId    String?
+  resultSummary       String?
+  confidence          Decimal?       @db.Decimal(5, 4)
+  humanReviewRequired Boolean        @default(false)
+  humanReviewedAt     DateTime?      @db.Timestamptz(3)
+  startedAt           DateTime?      @db.Timestamptz(3)
+  completedAt         DateTime?      @db.Timestamptz(3)
+  createdAt           DateTime       @default(now()) @db.Timestamptz(3)
+
+  findings            AiFinding[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, sourceType, sourceId])
+  @@schema("lashibi")
+}
+
+model AiFinding {
+  id              String   @id @default(cuid())
+  tenantId        String
+  aiRunId         String
+  aiRun           AiRun    @relation(fields: [tenantId, aiRunId], references: [tenantId, id], onDelete: Restrict)
+  type            String
+  title           String
+  detail          String?
+  severity        IncidentSeverity?
+  confidence      Decimal? @db.Decimal(5, 4)
+  evidence        Json?
+  accepted        Boolean?
+  reviewedById    String?
+  reviewedAt      DateTime? @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, aiRunId])
+  @@schema("lashibi")
+}
